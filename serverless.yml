@@ -1,6 +1,6 @@
 service: mrkapu-messages-service
 
-frameworkVersion: '3'
+frameworkVersion: '4'
 useDotenv: true
 
 provider:
@@ -9,7 +9,7 @@ provider:
   architecture: arm64
   region: ${opt:region, 'ap-southeast-1'}
   stage: ${opt:stage, 'dev'}
-  profile: owlester
+  profile: mrkapu-deploy
   memorySize: 512
   timeout: 30
 

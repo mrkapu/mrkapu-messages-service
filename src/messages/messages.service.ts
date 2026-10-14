@@ -5,14 +5,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   createDomainEvent,
   DOMAIN_EVENT_TYPES,
 } from '../shared/contracts/domain-events';
 import { NotificationWriterService } from '../shared/data-access/notification-writer.service';
 import { EventPublisherService } from '../shared/events/event-publisher.service';
-import { MembershipGuardService } from '../shared/membership/membership-guard.service';
+import {
+  MembershipGuardService,
+  UserRef,
+  UserRefDocument,
+} from '../shared/membership/membership-guard.service';
 import { DirectMessage } from './direct-message.entity';
 import { MessageRequest } from './message-request.entity';
 
@@ -26,6 +30,8 @@ export class MessagesService {
     private readonly notificationWriter: NotificationWriterService,
     private readonly eventPublisher: EventPublisherService,
     private readonly membershipGuard: MembershipGuardService,
+    @InjectModel(UserRef.name)
+    private readonly userRefModel: Model<UserRefDocument>,
   ) {}
 
   async requestChat(requesterId: string, recipientId: string) {
@@ -128,6 +134,22 @@ export class MessagesService {
       throw new ConflictException('Cannot message yourself');
     }
 
+    // Only gate *starting* a new thread — once a conversation already
+    // exists, replying stays allowed regardless of tier so nobody gets
+    // retroactively locked out of a chat they already have.
+    const existingThread = await this.directMessageModel
+      .findOne({
+        $or: [
+          { senderId, recipientId },
+          { senderId: recipientId, recipientId: senderId },
+        ],
+      })
+      .lean()
+      .exec();
+    if (!existingThread) {
+      await this.membershipGuard.requireCanInitiateMessage(senderId);
+    }
+
     const message = await this.directMessageModel.create({
       senderId,
       recipientId,
@@ -154,7 +176,70 @@ export class MessagesService {
     return message.toObject();
   }
 
+  // Everyone the actor has exchanged direct messages with, newest first.
+  // Names are first name + last initial and there's no photo — replies to
+  // a proposal ad mustn't reveal more than the ad itself does.
+  async listConversations(actorId: string) {
+    const rows = await this.directMessageModel
+      .aggregate([
+        { $match: { $or: [{ senderId: actorId }, { recipientId: actorId }] } },
+        { $sort: { createdAt: -1, _id: -1 } },
+        {
+          $group: {
+            _id: { $cond: [{ $eq: ['$senderId', actorId] }, '$recipientId', '$senderId'] },
+            lastText: { $first: '$text' },
+            lastAt: { $first: '$createdAt' },
+            lastSenderId: { $first: '$senderId' },
+            unread: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$recipientId', actorId] }, { $not: ['$readAt'] }] },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+        { $sort: { lastAt: -1 } },
+        { $limit: 100 },
+      ])
+      .exec();
+
+    const ids = rows.map((r) => r._id).filter((id) => Types.ObjectId.isValid(id));
+    const users = await this.userRefModel
+      .find({ _id: { $in: ids } })
+      .select('firstName lastName')
+      .lean()
+      .exec();
+    const nameOf = new Map(
+      users.map((u) => [
+        String(u._id),
+        [u.firstName, u.lastName ? `${u.lastName.trim().charAt(0)}.` : '']
+          .filter(Boolean)
+          .join(' ')
+          .trim(),
+      ]),
+    );
+
+    return rows.map((r) => ({
+      userId: r._id,
+      name: nameOf.get(String(r._id)) || null,
+      lastText: r.lastText,
+      lastAt: r.lastAt,
+      lastFromMe: r.lastSenderId === actorId,
+      unread: r.unread,
+    }));
+  }
+
   async listDirectThread(actorId: string, withUserId: string) {
+    // Opening a thread marks what the actor received in it as read.
+    await this.directMessageModel
+      .updateMany(
+        { senderId: withUserId, recipientId: actorId, readAt: { $exists: false } },
+        { $set: { readAt: new Date() } },
+      )
+      .exec();
     return this.directMessageModel
       .find({
         $or: [

@@ -54,6 +54,14 @@ export class MessagesController {
     return this.messagesService.getStatus(requesterId, recipientId);
   }
 
+  @Get('conversations')
+  async listConversations(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    return this.messagesService.listConversations(actorId);
+  }
+
   @Get('thread')
   async listDirectThread(
     @Headers('authorization') authorization: string | undefined,

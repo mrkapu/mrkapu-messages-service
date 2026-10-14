@@ -23,9 +23,9 @@ export class NotificationsService {
       .exec();
   }
 
-  async markRead(id: string) {
-    return this.notificationModel.findByIdAndUpdate(
-      id,
+  async markRead(id: string, userId: string) {
+    return this.notificationModel.findOneAndUpdate(
+      { _id: id, userId },
       { isRead: true },
       { new: true },
     );

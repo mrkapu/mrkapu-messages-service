@@ -6,26 +6,14 @@ import { HydratedDocument, Model } from 'mongoose';
 @Schema({ collection: 'auth_users' })
 export class UserRef {
   @Prop() account_type?: string;
-  @Prop() membership_tier?: string;
-  @Prop() membership_expires_at?: Date;
+  @Prop() personal_tier?: string;
+  @Prop() personal_tier_expires_at?: Date;
+  @Prop() firstName?: string;
+  @Prop() lastName?: string;
 }
 
 export type UserRefDocument = HydratedDocument<UserRef>;
 export const UserRefSchema = SchemaFactory.createForClass(UserRef);
-
-const TRACK_OF: Record<string, string> = {
-  free: 'user',
-  premium: 'user',
-  silver: 'service_account',
-  platinum: 'service_account',
-};
-
-const TIER_RANK: Record<string, number> = {
-  free: 0,
-  premium: 1,
-  silver: 0,
-  platinum: 1,
-};
 
 @Injectable()
 export class MembershipGuardService {
@@ -36,50 +24,23 @@ export class MembershipGuardService {
   private async getMembership(userId: string) {
     const user = await this.userRefModel
       .findById(userId)
-      .select('account_type membership_tier membership_expires_at')
+      .select('account_type personal_tier personal_tier_expires_at')
       .lean()
       .exec();
 
     if (!user) return null;
 
     const accountType = user.account_type || 'user';
-    const expiresAt = user.membership_expires_at;
+    const expiresAt = user.personal_tier_expires_at;
     const isExpired = expiresAt ? new Date(expiresAt) < new Date() : false;
-    const defaultTier = accountType === 'service_account' ? 'silver' : 'free';
-    const effectiveTier = isExpired ? defaultTier : (user.membership_tier || defaultTier);
+    const effectiveTier = isExpired ? 'free' : (user.personal_tier || 'free');
 
     return { accountType, effectiveTier };
   }
 
-  async requireTier(userId: string, requiredTier: string, feature: string): Promise<void> {
-    const membership = await this.getMembership(userId);
-    if (!membership) return;
-
-    const { accountType, effectiveTier } = membership;
-
-    // Track mismatch: service_account can never satisfy a user-track tier requirement.
-    const requiredTrack = TRACK_OF[requiredTier];
-    if (requiredTrack && requiredTrack !== accountType) {
-      throw new ForbiddenException({
-        error: 'UPGRADE_REQUIRED',
-        requiredTier,
-        feature,
-      });
-    }
-
-    const effectiveRank = TIER_RANK[effectiveTier] ?? 0;
-    const requiredRank = TIER_RANK[requiredTier] ?? 0;
-
-    if (effectiveRank < requiredRank) {
-      throw new ForbiddenException({
-        error: 'UPGRADE_REQUIRED',
-        requiredTier,
-        feature,
-      });
-    }
-  }
-
-  // Service accounts can only receive messages, not initiate them.
+  // Anyone can start a conversation — replying to a marriage proposal ad is
+  // free (2026-10-06: member plans no longer gate messaging). Service
+  // accounts (vendors) can still only receive messages, never initiate one.
   async requireCanInitiateMessage(userId: string): Promise<void> {
     const membership = await this.getMembership(userId);
     if (!membership) return;
@@ -87,16 +48,7 @@ export class MembershipGuardService {
     if (membership.accountType === 'service_account') {
       throw new ForbiddenException({
         error: 'UPGRADE_REQUIRED',
-        requiredTier: 'premium',
-        feature: 'send_direct_message',
-      });
-    }
-
-    if (membership.effectiveTier !== 'premium') {
-      throw new ForbiddenException({
-        error: 'UPGRADE_REQUIRED',
-        requiredTier: 'premium',
-        feature: 'send_direct_message',
+        reason: 'service_account_cannot_initiate_message',
       });
     }
   }
