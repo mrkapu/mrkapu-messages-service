@@ -20,6 +20,10 @@ provider:
     AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, 'kapu-general'}
     AWS_S3_PUBLIC_URL: ${env:AWS_S3_PUBLIC_URL, ''}
     EVENT_BUS_NAME: ${env:EVENT_BUS_NAME, 'default'}
+    # Firebase Cloud Messaging for chat push; push is skipped if unset.
+    FIREBASE_PROJECT_ID: ${env:FIREBASE_PROJECT_ID, ''}
+    FIREBASE_CLIENT_EMAIL: ${env:FIREBASE_CLIENT_EMAIL, ''}
+    FIREBASE_PRIVATE_KEY: ${env:FIREBASE_PRIVATE_KEY, ''}
 
   iam:
     role:

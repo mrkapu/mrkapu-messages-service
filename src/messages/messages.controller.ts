@@ -7,6 +7,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { PushService } from '../push/push.service';
 import { ActorAuthService } from '../shared/auth/actor-auth.service';
 import { MessagesService } from './messages.service';
 
@@ -24,11 +25,17 @@ type SendDirectMessageBody = {
   text: string;
 };
 
+type RegisterDeviceBody = {
+  token: string;
+  platform: string;
+};
+
 @Controller('messages')
 export class MessagesController {
   constructor(
     private readonly messagesService: MessagesService,
     private readonly actorAuthService: ActorAuthService,
+    private readonly pushService: PushService,
   ) {}
 
   @Post('request')
@@ -69,6 +76,28 @@ export class MessagesController {
   ) {
     const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
     return this.messagesService.listDirectThread(actorId, withUserId);
+  }
+
+  // Firebase Cloud Messaging token for the caller's browser/phone, so new
+  // messages reach it as push notifications and live chat updates.
+  @Post('devices')
+  async registerDevice(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: RegisterDeviceBody,
+  ) {
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    return this.pushService.registerToken(actorId, body?.token, body?.platform);
+  }
+
+  // Called on sign-out so a shared device stops getting the old account's
+  // messages.
+  @Post('devices/remove')
+  async removeDevice(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { token: string },
+  ) {
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    return this.pushService.removeToken(actorId, body?.token);
   }
 
   @Post('direct')

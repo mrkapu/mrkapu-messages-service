@@ -17,6 +17,7 @@ import {
   UserRef,
   UserRefDocument,
 } from '../shared/membership/membership-guard.service';
+import { PushService } from '../push/push.service';
 import { DirectMessage } from './direct-message.entity';
 import { MessageRequest } from './message-request.entity';
 
@@ -32,6 +33,7 @@ export class MessagesService {
     private readonly membershipGuard: MembershipGuardService,
     @InjectModel(UserRef.name)
     private readonly userRefModel: Model<UserRefDocument>,
+    private readonly pushService: PushService,
   ) {}
 
   async requestChat(requesterId: string, recipientId: string) {
@@ -173,7 +175,33 @@ export class MessagesService {
       }),
     );
 
+    await this.pushService.notifyNewMessage({
+      messageId: message._id.toString(),
+      senderId,
+      senderName: await this.shortNameOf(senderId),
+      recipientId,
+      text: cleanText,
+      createdAt: (message as unknown as { createdAt: Date }).createdAt,
+    });
+
     return message.toObject();
+  }
+
+  // First name + last initial — the same as the conversation list shows.
+  private async shortNameOf(userId: string): Promise<string | null> {
+    if (!Types.ObjectId.isValid(userId)) return null;
+    const u = await this.userRefModel
+      .findById(userId)
+      .select('firstName lastName')
+      .lean()
+      .exec();
+    if (!u) return null;
+    return (
+      [u.firstName, u.lastName ? `${u.lastName.trim().charAt(0)}.` : '']
+        .filter(Boolean)
+        .join(' ')
+        .trim() || null
+    );
   }
 
   // Everyone the actor has exchanged direct messages with, newest first.

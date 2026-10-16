@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { PushModule } from '../push/push.module';
 import { SharedAuthModule } from '../shared/auth/shared-auth.module';
 import { SharedNotificationWriterModule } from '../shared/data-access/shared-notification-writer.module';
 import { SharedEventsModule } from '../shared/events/shared-events.module';
@@ -23,6 +24,7 @@ import { MessagesService } from './messages.service';
     SharedAuthModule,
     SharedNotificationWriterModule,
     SharedEventsModule,
+    PushModule,
   ],
   providers: [MessagesService, MembershipGuardService],
   controllers: [MessagesController],
