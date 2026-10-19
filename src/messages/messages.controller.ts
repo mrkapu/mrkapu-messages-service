@@ -12,11 +12,7 @@ import { ActorAuthService } from '../shared/auth/actor-auth.service';
 import { MessagesService } from './messages.service';
 
 type RequestChatBody = {
-  requesterId: string;
-  recipientId: string;
-};
-
-type AcceptChatBody = {
+  requesterId?: string;
   recipientId: string;
 };
 
@@ -38,27 +34,43 @@ export class MessagesController {
     private readonly pushService: PushService,
   ) {}
 
+  // Chat requests act as the signed-in member. Clients still send their own
+  // id in the body / query (requesterId, recipientId, userId); it's ignored
+  // — trusting it let anyone act as, or read the requests of, anyone else.
   @Post('request')
-  async requestChat(@Body() body: RequestChatBody) {
-    return this.messagesService.requestChat(body.requesterId, body.recipientId);
+  async requestChat(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: RequestChatBody,
+  ) {
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    return this.messagesService.requestChat(actorId, body.recipientId);
   }
 
   @Post('request/:id/accept')
-  async acceptChat(@Param('id') id: string, @Body() body: AcceptChatBody) {
-    return this.messagesService.acceptRequest(id, body.recipientId);
+  async acceptChat(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    return this.messagesService.acceptRequest(id, actorId);
   }
 
   @Get('requests')
-  async listRequests(@Query('userId') userId: string) {
-    return this.messagesService.listRequestsForUser(userId);
+  async listRequests(@Headers('authorization') authorization: string | undefined) {
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    return this.messagesService.listRequestsForUser(actorId);
   }
 
+  // Between the signed-in member and the other id given (either param).
   @Get('status')
   async status(
+    @Headers('authorization') authorization: string | undefined,
     @Query('requesterId') requesterId: string,
     @Query('recipientId') recipientId: string,
   ) {
-    return this.messagesService.getStatus(requesterId, recipientId);
+    const actorId = this.actorAuthService.getActorIdFromAuth(authorization);
+    const otherId = requesterId === actorId ? recipientId : requesterId;
+    return this.messagesService.getStatus(actorId, otherId);
   }
 
   @Get('conversations')

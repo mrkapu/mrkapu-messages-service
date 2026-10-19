@@ -37,10 +37,10 @@ export class MessagesService {
   ) {}
 
   async requestChat(requesterId: string, recipientId: string) {
-    await this.membershipGuard.requireCanInitiateMessage(requesterId);
     if (requesterId === recipientId) {
       throw new ConflictException('Cannot request yourself');
     }
+    await this.membershipGuard.requireCanMessage(requesterId, recipientId, false);
 
     const existing = await this.requestModel.findOne({
       requesterId,
@@ -136,9 +136,8 @@ export class MessagesService {
       throw new ConflictException('Cannot message yourself');
     }
 
-    // Only gate *starting* a new thread — once a conversation already
-    // exists, replying stays allowed regardless of tier so nobody gets
-    // retroactively locked out of a chat they already have.
+    // Members start a thread once matched (MembershipGuardService); an
+    // existing thread carries on unless the match was declined or ended.
     const existingThread = await this.directMessageModel
       .findOne({
         $or: [
@@ -148,9 +147,7 @@ export class MessagesService {
       })
       .lean()
       .exec();
-    if (!existingThread) {
-      await this.membershipGuard.requireCanInitiateMessage(senderId);
-    }
+    await this.membershipGuard.requireCanMessage(senderId, recipientId, Boolean(existingThread));
 
     const message = await this.directMessageModel.create({
       senderId,

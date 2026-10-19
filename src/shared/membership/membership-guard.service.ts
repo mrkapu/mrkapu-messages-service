@@ -38,9 +38,33 @@ export class MembershipGuardService {
     return { accountType, effectiveTier };
   }
 
-  // Anyone can start a conversation — replying to a marriage proposal ad is
-  // free (2026-10-06: member plans no longer gate messaging). Service
-  // accounts (vendors) can still only receive messages, never initiate one.
+  // Members chat once they've matched (docs/matchmaking-plan.md, stage 3):
+  // two members need an accepted interest between them
+  // (mrkapu-matrimonial-service listing_interests) to start a conversation;
+  // writing to a vendor about a booking needs none. A declined or ended
+  // match closes the chat for good, existing thread or not. Threads from
+  // before matching existed carry on.
+  async requireCanMessage(senderId: string, recipientId: string, threadExists: boolean): Promise<void> {
+    const pair = (await this.userRefModel.db
+      .collection('listing_interests')
+      .findOne({ pairKey: [senderId, recipientId].sort().join(':') }, { projection: { status: 1 } })) as { status?: string } | null;
+    if (pair?.status === 'declined' || pair?.status === 'unmatched') {
+      throw new ForbiddenException({ error: 'CHAT_CLOSED', message: 'This conversation is closed.' });
+    }
+    if (threadExists) return;
+
+    await this.requireCanInitiateMessage(senderId);
+    const [sender, recipient] = await Promise.all([this.getMembership(senderId), this.getMembership(recipientId)]);
+    if (!sender || recipient?.accountType === 'service_account') return;
+    if (pair?.status === 'accepted') return;
+    throw new ForbiddenException({
+      error: 'MATCH_REQUIRED',
+      message: 'You can chat once you’ve matched — send interest from their ad first.',
+    });
+  }
+
+  // Service accounts (vendors) can only receive messages, never start a
+  // conversation.
   async requireCanInitiateMessage(userId: string): Promise<void> {
     const membership = await this.getMembership(userId);
     if (!membership) return;
