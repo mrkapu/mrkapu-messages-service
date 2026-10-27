@@ -54,6 +54,10 @@ export class MembershipGuardService {
     if (threadExists) return;
 
     await this.requireCanInitiateMessage(senderId);
+    // While matchmaking is hidden (web MATCHMAKING_ENABLED, mobile
+    // kMatchmakingEnabled) members can't match, so anyone may reply to a
+    // marriage proposal ad.
+    if (process.env.MATCHMAKING_ENABLED !== 'true') return;
     const [sender, recipient] = await Promise.all([this.getMembership(senderId), this.getMembership(recipientId)]);
     if (!sender || recipient?.accountType === 'service_account') return;
     if (pair?.status === 'accepted') return;
